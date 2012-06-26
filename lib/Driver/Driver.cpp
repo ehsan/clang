@@ -1687,7 +1687,8 @@ static llvm::Triple computeTargetTriple(StringRef DefaultTargetTriple,
   // Skip further flag support on OSes which don't support '-m32' or '-m64'.
   if (Target.getArchName() == "tce" ||
       Target.getOS() == llvm::Triple::AuroraUX ||
-      Target.getOS() == llvm::Triple::Minix)
+      Target.getOS() == llvm::Triple::Minix ||
+      Target.getOS() == llvm::Triple::Emscripten)
     return Target;
 
   // Handle pseudo-target flags '-m32' and '-m64'.
@@ -1745,6 +1746,9 @@ const ToolChain &Driver::getToolChain(const ArgList &Args,
       break;
     case llvm::Triple::Minix:
       TC = new toolchains::Minix(*this, Target, Args);
+      break;
+    case llvm::Triple::Emscripten:
+      TC = new toolchains::Emscripten(*this, Target);
       break;
     case llvm::Triple::Linux:
       if (Target.getArch() == llvm::Triple::hexagon)

@@ -538,6 +538,27 @@ private:
                                        ArgStringList &CC1Args);
 };
 
+class LLVM_LIBRARY_VISIBILITY Emscripten : public ToolChain {
+public:
+  Emscripten(const Driver &D, const llvm::Triple &Triple)
+    : ToolChain(D, Triple) {
+  }
+
+  virtual Tool &SelectTool(const Compilation &C, const JobAction &JA,
+                           const ActionList &Inputs) const;
+  virtual bool HasNativeLLVMSupport() const;
+  virtual bool IsUnwindTablesDefault() const;
+  virtual const char *GetDefaultRelocationModel() const;
+  virtual const char *GetForcedPicModel() const;
+  virtual bool SupportsProfiling() const;
+  virtual bool hasBlocksRuntime() const;
+  virtual void AddClangSystemIncludeArgs(const ArgList &DriverArgs,
+                                         ArgStringList &CC1Args) const;
+
+private:
+  mutable llvm::DenseMap<unsigned, Tool*> Tools;
+};
+
 
 /// TCEToolChain - A tool chain using the llvm bitcode tools to perform
 /// all subcommands. See http://tce.cs.tut.fi for our peculiar target.

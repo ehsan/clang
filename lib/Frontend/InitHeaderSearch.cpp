@@ -369,6 +369,7 @@ AddDefaultCPlusPlusIncludePaths(const llvm::Triple &triple, const HeaderSearchOp
   }
 
   switch (os) {
+  case llvm::Triple::Emscripten:
   case llvm::Triple::Linux:
   case llvm::Triple::Win32:
     llvm_unreachable("Include management is handled in the driver.");

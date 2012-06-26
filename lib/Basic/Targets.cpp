@@ -2510,6 +2510,29 @@ public:
 };
 } // end anonymous namespace
 
+namespace {
+// Emscripten target
+class EmscriptenTargetInfo : public LinuxTargetInfo<X86_32TargetInfo> {
+protected:
+  virtual void getOSDefines(const LangOptions &Opts, const llvm::Triple &Triple,
+                            MacroBuilder &Builder) const {
+    LinuxTargetInfo<X86_32TargetInfo>::getOSDefines(Opts, Triple, Builder);
+    Builder.defineMacro("EMSCRIPTEN");
+    Builder.undefineMacro("linux");
+    Builder.undefineMacro("__linux");
+    Builder.undefineMacro("__linux__");
+  }
+public:
+  EmscriptenTargetInfo(const std::string& triple)
+    : LinuxTargetInfo(triple) {
+  }
+
+  virtual const char *getStaticInitSectionSpecifier() const {
+    return 0;
+  }
+};
+} // end anonymous namespace
+
 // RTEMS Target
 template<typename Target>
 class RTEMSTargetInfo : public OSTargetInfo<Target> {
@@ -4198,6 +4221,8 @@ static TargetInfo *AllocateTarget(const std::string &T) {
       return new FreeBSDTargetInfo<X86_32TargetInfo>(T);
     case llvm::Triple::Minix:
       return new MinixTargetInfo<X86_32TargetInfo>(T);
+    case llvm::Triple::Emscripten:
+      return new EmscriptenTargetInfo(T);
     case llvm::Triple::Solaris:
       return new SolarisTargetInfo<X86_32TargetInfo>(T);
     case llvm::Triple::Cygwin:

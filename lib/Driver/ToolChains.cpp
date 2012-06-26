@@ -1681,6 +1681,72 @@ Tool &Minix::SelectTool(const Compilation &C, const JobAction &JA,
   return *T;
 }
 
+Tool &Emscripten::SelectTool(const Compilation &C,
+                             const JobAction &JA,
+                             const ActionList &Inputs) const {
+  Action::ActionClass Key;
+  Key = Action::AnalyzeJobClass;
+
+  Tool *&T = Tools[Key];
+  if (!T) {
+    switch (Key) {
+    case Action::PreprocessJobClass:
+    case Action::CompileJobClass:
+      T = new tools::Clang(*this); break;
+    default:
+     llvm_unreachable("Unsupported action for TCE target.");
+    }
+  }
+  return *T;
+}
+
+bool Emscripten::HasNativeLLVMSupport() const {
+  return false;
+}
+
+bool Emscripten::IsUnwindTablesDefault() const {
+  return false;
+}
+
+const char *Emscripten::GetDefaultRelocationModel() const {
+  return "static";
+}
+
+const char *Emscripten::GetForcedPicModel() const {
+  return 0;
+}
+
+bool Emscripten::SupportsProfiling() const {
+  return false;
+}
+
+bool Emscripten::hasBlocksRuntime() const {
+  return false;
+}
+
+void Emscripten::AddClangSystemIncludeArgs(const ArgList &DriverArgs,
+                                           ArgStringList &CC1Args) const {
+  std::string EmscriptenRoot;
+  // TODO: Get EmscriptenRoot somehow
+
+  const StringRef EmscriptenIncludeDirs[] = {
+    "/system/include",
+    "/system/include/emscripten",
+    "/system/include/bsd",
+    "/system/include/libc",
+    "/system/include/libcxx",
+    "/system/include/gfx",
+    "/system/include/net",
+    "/system/include/SDL"
+  };
+  ArrayRef<StringRef> IncludeDirs = EmscriptenIncludeDirs;
+  for (ArrayRef<StringRef>::iterator I = IncludeDirs.begin(),
+                                     E = IncludeDirs.end();
+       I != E; ++I) {
+    addSystemInclude(DriverArgs, CC1Args, EmscriptenRoot + *I);
+  }
+}
+
 /// AuroraUX - AuroraUX tool chain which can call as(1) and ld(1) directly.
 
 AuroraUX::AuroraUX(const Driver &D, const llvm::Triple& Triple,
