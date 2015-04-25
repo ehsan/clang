@@ -12298,6 +12298,43 @@ Decl *Sema::ActOnField(Scope *S, Decl *TagD, SourceLocation DeclStart,
   return Res;
 }
 
+/// CheckShadowField - Check to see if a field shadows one with the same
+/// name in a base class. Implements -Wshadow-field.
+void Sema::CheckShadowField(Scope *S, const RecordDecl *Record,
+                            SourceLocation DeclStart,
+                            IdentifierInfo *II) {
+  // We only care about C++ fields.
+  const CXXRecordDecl *CXXRecord = dyn_cast<CXXRecordDecl>(Record);
+  if (!CXXRecord)
+    return;
+
+  // Lookup a class member with the same name.
+  LookupResult Previous(*this, II, DeclStart, LookupMemberName, NotForRedeclaration);
+  // We don't want the name lookup here to diagnose.
+  Previous.suppressDiagnostics();
+  LookupName(Previous, S);
+
+  // Return if warning is ignored.
+  if (Diags.isIgnored(diag::warn_decl_shadow_field, Previous.getNameLoc()))
+    return;
+
+  // Only diagnose if we're shadowing an unambiguous field.
+  if (Previous.getResultKind() != LookupResult::Found)
+    return;
+
+  const FieldDecl *OldFD = Previous.getAsSingle<FieldDecl>();
+  if (!OldFD)
+    return;
+
+  // Check to make sure that we have found a field in a base class.
+  const CXXRecordDecl *OldCXXRecord = dyn_cast<CXXRecordDecl>(OldFD->getParent());
+  if (!OldCXXRecord || !CXXRecord->isDerivedFrom(OldCXXRecord))
+    return;
+
+  Diag(DeclStart, diag::warn_decl_shadow_field);
+  Diag(OldFD->getLocation(), diag::note_previous_declaration);
+}
+
 /// HandleField - Analyze a field of a C struct or a C++ data member.
 ///
 FieldDecl *Sema::HandleField(Scope *S, RecordDecl *Record,
@@ -12372,6 +12409,8 @@ FieldDecl *Sema::HandleField(Scope *S, RecordDecl *Record,
 
   if (PrevDecl && !isDeclInScope(PrevDecl, Record, S))
     PrevDecl = nullptr;
+
+  CheckShadowField(S, Record, Loc, II);
 
   bool Mutable
     = (D.getDeclSpec().getStorageClassSpec() == DeclSpec::SCS_mutable);

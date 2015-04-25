@@ -290,6 +290,9 @@ def warn_decl_shadow :
           "static data member of %2|"
           "field of %2}1">,
   InGroup<Shadow>, DefaultIgnore;
+def warn_decl_shadow_field : Warning<
+  "declaration shadows a base class member">,
+  InGroup<ShadowField>, DefaultIgnore;
 
 // C++ using declarations
 def err_using_requires_qualname : Error<

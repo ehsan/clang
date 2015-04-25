@@ -1775,6 +1775,9 @@ public:
                             SourceLocation TSSL,
                             AccessSpecifier AS, NamedDecl *PrevDecl,
                             Declarator *D = nullptr);
+  void CheckShadowField(Scope *S, const RecordDecl *TagD,
+                        SourceLocation DeclStart,
+                        IdentifierInfo *II);
 
   bool CheckNontrivialField(FieldDecl *FD);
   void DiagnoseNontrivial(const CXXRecordDecl *Record, CXXSpecialMember CSM);
