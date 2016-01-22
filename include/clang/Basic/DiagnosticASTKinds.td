@@ -148,6 +148,9 @@ def note_constexpr_baa_insufficient_alignment : Note<
 def note_constexpr_baa_value_insufficient_alignment : Note<
   "value of the aligned pointer (%0) is not a multiple of the asserted %1 "
   "%plural{1:byte|:bytes}1">;
+def note_constexpr_microsoft_abi_declrefexpr : Note<
+  "the constant expression cannot contain a reference to a variable as a Microsoft "
+  "ABI extension">;
 
 def warn_integer_constant_overflow : Warning<
   "overflow in expression; result is %0 with type %1">,
