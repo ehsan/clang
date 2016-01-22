@@ -477,6 +477,19 @@ namespace {
     /// fold (not just why it's not strictly a constant expression)?
     bool HasFoldFailureDiagnostic;
 
+    /// \brief True if we need to obey the Microsoft ABI.  This affects whether
+    /// some expressions can be evaluated as a constant if they refer to
+    /// variables in some cases.  See PR26210 for the discussion.
+    bool IsMicrosoftABI;
+
+    /// \brief True if we are looking for a DeclRefExpr.
+    bool LookingForDeclRefExpr;
+
+    /// \brief True if we have observed a DeclRefExpr since the last time that
+    /// awaitDeclRefExpr() was called.  This is used in order to handle Microsoft
+    /// ABI requirements.
+    bool HaveSeenDeclRefExpr;
+
     enum EvaluationMode {
       /// Evaluate as a constant expression. Stop if we find that the expression
       /// is not a constant expression.
@@ -541,7 +554,9 @@ namespace {
         BottomFrame(*this, SourceLocation(), nullptr, nullptr, nullptr),
         EvaluatingDecl((const ValueDecl *)nullptr),
         EvaluatingDeclValue(nullptr), HasActiveDiagnostic(false),
-        HasFoldFailureDiagnostic(false), EvalMode(Mode) {}
+        HasFoldFailureDiagnostic(false), IsMicrosoftABI(false),
+        LookingForDeclRefExpr(false), HaveSeenDeclRefExpr(false),
+        EvalMode(Mode) {}
 
     void setEvaluatingDecl(APValue::LValueBase Base, APValue &Value) {
       EvaluatingDecl = Base;
@@ -766,6 +781,22 @@ namespace {
     bool allowInvalidBaseExpr() const {
       return EvalMode == EM_DesignatorFold;
     }
+
+    /// Use the Microsoft ABI during evaluation.
+    void useMicrosoftABI() {
+      IsMicrosoftABI = true;
+    }
+
+    /// Start watching for a DeclRefExpr.
+    void awaitDeclRefExpr() {
+      LookingForDeclRefExpr = true;
+      HaveSeenDeclRefExpr = false;
+    }
+
+    /// Remember that we have observed a DeclRefExpr.
+    void noteDeclRefExpr() {
+      HaveSeenDeclRefExpr = true;
+    }
   };
 
   /// Object used to treat all foldable expressions as constant expressions.
@@ -814,13 +845,14 @@ namespace {
   /// RAII object used to suppress diagnostics and side-effects from a
   /// speculative evaluation.
   class SpeculativeEvaluationRAII {
-    EvalInfo &Info;
     Expr::EvalStatus Old;
+  protected:
+    EvalInfo &Info;
 
   public:
     SpeculativeEvaluationRAII(EvalInfo &Info,
                         SmallVectorImpl<PartialDiagnosticAt> *NewDiag = nullptr)
-      : Info(Info), Old(Info.EvalStatus) {
+      : Old(Info.EvalStatus), Info(Info) {
       Info.EvalStatus.Diag = NewDiag;
       // If we're speculatively evaluating, we may have skipped over some
       // evaluations and missed out a side effect.
@@ -828,6 +860,18 @@ namespace {
     }
     ~SpeculativeEvaluationRAII() {
       Info.EvalStatus = Old;
+    }
+  };
+
+  class SpeculativeLookForDeclRefExprRAII final : SpeculativeEvaluationRAII {
+  public:
+    SpeculativeLookForDeclRefExprRAII(EvalInfo &Info,
+                           SmallVectorImpl<PartialDiagnosticAt> *NewDiag = nullptr)
+      : SpeculativeEvaluationRAII(Info, NewDiag) {
+      Info.awaitDeclRefExpr();
+    }
+    ~SpeculativeLookForDeclRefExprRAII() {
+      Info.LookingForDeclRefExpr = false;
     }
   };
 
@@ -4039,6 +4083,18 @@ private:
     Error(E, diag::note_constexpr_conditional_never_const);
   }
 
+  // Check whether an expression contains a DeclRefExpr where not permitted by
+  // the Microsoft ABI.
+  template<typename Expr>
+  bool CheckPotentialExpressionContainingDeclRefExpr(const Expr *E) {
+    SmallVector<PartialDiagnosticAt, 8> Diag;
+    SpeculativeLookForDeclRefExprRAII Speculate(Info, &Diag);
+
+    StmtVisitorTy::Visit(E);
+    if (Info.HaveSeenDeclRefExpr)
+      return Error(E, diag::note_constexpr_microsoft_abi_declrefexpr);
+    return true;
+  }
 
   template<typename ConditionalOperator>
   bool HandleConditionalOperator(const ConditionalOperator *E) {
@@ -4050,6 +4106,13 @@ private:
     }
 
     Expr *EvalExpr = BoolResult ? E->getTrueExpr() : E->getFalseExpr();
+    if (Info.IsMicrosoftABI) {
+      // In the Microsoft ABI, a DeclRefExpr on either side of the conditional
+      // operator will prevent us from evaluating the expression to a constant.
+      if (!CheckPotentialExpressionContainingDeclRefExpr(E->getTrueExpr(),
+                                                         E->getFalseExpr()))
+        return false;
+    }
     return StmtVisitorTy::Visit(EvalExpr);
   }
 
@@ -4063,6 +4126,15 @@ protected:
   }
 
   bool ZeroInitialization(const Expr *E) { return Error(E); }
+
+  // Check whether either of the two expressions contains a DeclRefExpr where
+  // not permitted by the Microsoft ABI.
+  template<typename ExprLHS, typename ExprRHS>
+  bool CheckPotentialExpressionContainingDeclRefExpr(const ExprLHS *ELHS,
+                                                     const ExprRHS *ERHS) {
+    return CheckPotentialExpressionContainingDeclRefExpr(ELHS) &&
+           CheckPotentialExpressionContainingDeclRefExpr(ERHS);
+  }
 
 public:
   ExprEvaluatorBase(EvalInfo &Info) : Info(Info) {}
@@ -4626,6 +4698,8 @@ static bool EvaluateLValue(const Expr *E, LValue &Result, EvalInfo &Info) {
 }
 
 bool LValueExprEvaluator::VisitDeclRefExpr(const DeclRefExpr *E) {
+  Info.noteDeclRefExpr();
+
   if (const FunctionDecl *FD = dyn_cast<FunctionDecl>(E->getDecl()))
     return Success(FD);
   if (const VarDecl *VD = dyn_cast<VarDecl>(E->getDecl()))
@@ -6069,6 +6143,8 @@ public:
 
   bool CheckReferencedDecl(const Expr *E, const Decl *D);
   bool VisitDeclRefExpr(const DeclRefExpr *E) {
+    Info.noteDeclRefExpr();
+
     if (CheckReferencedDecl(E, E->getDecl()))
       return true;
 
@@ -7186,6 +7262,20 @@ void DataRecursiveIntBinOpEvaluator::process(EvalResult &Result) {
 }
 
 bool IntExprEvaluator::VisitBinaryOperator(const BinaryOperator *E) {
+    if (Info.IsMicrosoftABI) {
+      switch (E->getOpcode()) {
+      case BO_Comma:
+      case BO_LAnd:
+      case BO_LOr:
+        // In the Microsoft ABI, a DeclRefExpr on either side of some binary
+        // operators will prevent us from evaluating the expression to a constant.
+        if (!CheckPotentialExpressionContainingDeclRefExpr(E->getLHS(), E->getRHS()))
+          return false;
+      default:
+        /* No need to do anything. */ ;
+      }
+    }
+
   if (!Info.keepEvaluatingAfterFailure() && E->isAssignmentOp())
     return Error(E);
 
@@ -8914,6 +9004,9 @@ bool Expr::EvaluateAsInitializer(APValue &Value, const ASTContext &Ctx,
                                       ? EvalInfo::EM_ConstantExpression
                                       : EvalInfo::EM_ConstantFold);
   InitInfo.setEvaluatingDecl(VD, Value);
+
+  if (Ctx.getTargetInfo().getCXXABI().isMicrosoft())
+    InitInfo.useMicrosoftABI();
 
   LValue LVal;
   LVal.set(VD);
