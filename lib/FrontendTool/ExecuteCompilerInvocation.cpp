@@ -190,7 +190,7 @@ bool clang::ExecuteCompilerInvocation(CompilerInstance *Clang) {
 #ifdef _MSC_VER
       // On Windows, we need to import the plugin front-end action
       // dynamically.
-      LLVM_IMPORT_REGSTRT(FrontendPluginRegistry, DL);
+      LLVM_IMPORT_REGISTRY(FrontendPluginRegistry, DL);
 #endif
     } else {
       Clang->getDiagnostics().Report(diag::err_fe_unable_to_load_plugin)
